@@ -6,7 +6,7 @@ Python backend, TypeScript/epub.js frontend, everything running on localhost.
 
 ## Architecture Principles
 
-**The frontend owns normalization; the backend is a pure function.**
+**The frontend owns normalization.**
 The DOM only exists in the browser. The frontend walks the rendered epub.js
 DOM, produces one canonical normalized text string, and records an offset map
 (a sorted array of runs: `{ node, domStart, domEnd, normStart, normEnd }`)
@@ -14,6 +14,11 @@ tying every normalized character back to its DOM origin. The backend never
 sees the DOM — it receives a string and returns sentences/tokens as
 `[start, end)` offset ranges into that exact string. It does not re-normalize
 in a way that shifts offsets.
+
+Segmentation and tokenization are a pure function of the normalized string —
+no DOM access, no side effects, deterministic given the same input. This
+applies to that code path specifically; the backend as a whole is stateful
+(SQLite, cached audio, the mining queue) — see Component Map.
 
 **Code points, not UTF-16 units, are the canonical offset unit.**
 JS strings are UTF-16; Python strings are code points. A supplementary-plane
@@ -29,11 +34,16 @@ Furigana is an annotation, not reading-order text.
 **Sentence segmentation and morphological tokenization are separate
 components.** `SentenceSegmenter` runs first over the whole normalized string
 and defines the TTS/highlight units (rule-based: 。！？ plus closing brackets
-」』）, with DOM block boundaries as hard breaks). fugashi/MeCab or Sudachi
-run *within* each sentence to produce word boundaries, lemmas, readings, and
+」』）, with DOM block boundaries as hard breaks). A morphological tokenizer
+runs *within* each sentence to produce word boundaries, lemmas, readings, and
 POS. Neither depends on the other's internals — segmentation must work even
 with a stub tokenizer, and tokenization must not need sentence boundaries to
 function.
+
+Morphology uses fugashi (MeCab) as the default tokenizer for M1. Sudachi is a
+candidate alternative (better handling of some proper nouns/neologisms) but
+not implemented. Unlike TTS, there's no provider interface here yet —
+introduce one only if a second tokenizer actually becomes necessary.
 
 **Durable anchors vs runtime identity.** The offset run array is rebuilt per
 section render — it's runtime-only. For anything persisted (highlights,
@@ -55,7 +65,8 @@ merged.** `LexicalEntry` (deterministic, from `jamdict`, keyed by lemma) is
 the authoritative lexical source and renders first, always. `ContextualExplanation`
 (LLM-generated, clearly labeled, generated on demand) is a separate field,
 separate UI region, and can never overwrite or blend into dictionary fields.
-Out of scope for Milestone 1.
+ContextualExplanation is out of scope for Milestone 1. LexicalEntry (JMdict)
+is in scope — see Current Milestone.
 
 **TTS sits behind a provider interface.** `TtsProvider` exposes
 `synthesize(text, voice, speed, lang, **settings) → audio + metadata` and a
@@ -79,11 +90,13 @@ Anki being closed is a normal state, not an error condition.
 
 ## Component Map
 
-- `frontend/` — TypeScript + Vite + epub.js. Renders EPUBs, does the DOM
-  walk + offset map, resolves clicks, paints highlights, shows the lookup
-  popup. Holds minimal logic — asks the backend for everything else.
+- `frontend/` — TypeScript + Vite + epub.js. Renders EPUBs, shows the lookup
+  popup. Owns the DOM walk, offset-map construction, click resolution, and
+  highlight painting — this is real logic, not thin glue. It asks the
+  backend only for segmentation, tokenization, and dictionary lookups; it
+  does not duplicate backend logic.
 - `backend/` — Python + FastAPI. Services: Library (EPUB ingest via
-  ebooklib), SentenceSegmenter, Morphology (fugashi/Sudachi), Dictionary
+  ebooklib), SentenceSegmenter, Morphology (fugashi/MeCab), Dictionary
   (JMdict via jamdict), TTS (provider interface), Anki (AnkiConnect +
   mining queue). SQLite for library/position/highlights/token cache/mining
   queue; filesystem for EPUBs and cached TTS audio (keyed by cache hash).
