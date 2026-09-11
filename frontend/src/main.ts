@@ -55,6 +55,68 @@ async function lookupLemma(lemma: string): Promise<LexicalEntryOut | null> {
 // (step 3+) only need to touch the section currently on screen.
 const sectionData = new Map<string, SectionData>()
 
+let popupEl: HTMLDivElement | null = null
+
+function removePopup(): void {
+  popupEl?.remove()
+  popupEl = null
+}
+
+// Click coordinates from inside the iframe are in the iframe's own viewport
+// space, so the popup is built in the top-level document (able to overlay
+// the whole page, not clipped by the iframe/container's own bounds) and
+// positioned using clientX/clientY offset by the iframe element's own
+// position in the top-level page.
+function showPopup(pageX: number, pageY: number, entry: LexicalEntryOut): void {
+  removePopup()
+
+  const popup = document.createElement('div')
+  popup.style.position = 'fixed'
+  popup.style.left = `${pageX}px`
+  popup.style.top = `${pageY}px`
+  popup.style.maxWidth = '320px'
+  popup.style.maxHeight = '40vh'
+  popup.style.overflowY = 'auto'
+  popup.style.background = 'white'
+  popup.style.color = 'black'
+  popup.style.border = '1px solid #333'
+  popup.style.borderRadius = '4px'
+  popup.style.padding = '8px 12px'
+  popup.style.font = '14px sans-serif'
+  popup.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.3)'
+  popup.style.zIndex = '9999'
+
+  const heading = document.createElement('div')
+  heading.style.fontWeight = 'bold'
+  heading.style.fontSize = '16px'
+  heading.textContent =
+    entry.readings.length > 0 ? `${entry.lemma} (${entry.readings.join('、')})` : entry.lemma
+  popup.appendChild(heading)
+
+  const list = document.createElement('ol')
+  list.style.margin = '4px 0 0 18px'
+  list.style.padding = '0'
+  for (const gloss of entry.glosses) {
+    const item = document.createElement('li')
+    item.textContent = gloss
+    list.appendChild(item)
+  }
+  popup.appendChild(list)
+
+  // Stop clicks inside the popup from reaching the top-level dismiss
+  // listener below and immediately closing it.
+  popup.addEventListener('click', (e) => e.stopPropagation())
+
+  document.body.appendChild(popup)
+  popupEl = popup
+}
+
+// Dismiss on any click outside the popup. Clicks inside the epub.js iframe
+// don't bubble up to this listener (each iframe is its own document), so
+// dismissal for "clicked elsewhere in the book" is handled directly in the
+// click handler below instead -- this covers clicks outside the iframe.
+document.addEventListener('click', () => removePopup())
+
 const viewer = document.querySelector<HTMLDivElement>('#app')!
 
 const book = Epub('/sample.epub')
@@ -90,18 +152,21 @@ function attachClickHandler(section: Section, doc: Document): void {
     const range = doc.caretRangeFromPoint(event.clientX, event.clientY)
     if (!range) {
       console.log('[click] no caret position at click point')
+      removePopup()
       return
     }
 
     const node = range.startContainer
     if (node.nodeType !== Node.TEXT_NODE) {
       console.log('[click] click did not land on a text node')
+      removePopup()
       return
     }
 
     const data = sectionData.get(section.href)
     if (!data) {
       console.log('[click] no analysis for this section yet')
+      removePopup()
       return
     }
 
@@ -112,12 +177,14 @@ function attachClickHandler(section: Section, doc: Document): void {
       // e.g. a click on furigana (<rt>/<rp>), which buildNormalizedText
       // deliberately excludes from the run array.
       console.log('[click] clicked position is not tracked text')
+      removePopup()
       return
     }
 
     const token = findTokenAt(data.tokens, offset)
     if (!token) {
       console.log(`[click] no token at normalized offset ${offset}`)
+      removePopup()
       return
     }
 
@@ -126,9 +193,15 @@ function attachClickHandler(section: Section, doc: Document): void {
     const entry = await lookupLemma(token.lemma)
     if (!entry) {
       console.log(`[lookup] no dictionary entry for "${token.lemma}"`)
+      removePopup()
       return
     }
-    console.log(`[lookup] ${token.lemma}`, entry)
+
+    // Translate the click's iframe-local coordinates into the top-level
+    // page's coordinate space, since the popup lives in the parent document.
+    const frameEl = doc.defaultView?.frameElement as HTMLElement | null
+    const frameRect = frameEl?.getBoundingClientRect() ?? { left: 0, top: 0 }
+    showPopup(frameRect.left + event.clientX, frameRect.top + event.clientY, entry)
   })
 }
 
