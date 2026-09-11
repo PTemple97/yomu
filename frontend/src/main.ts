@@ -35,6 +35,22 @@ interface SectionData {
   tokens: TokenOut[]
 }
 
+interface LexicalEntryOut {
+  lemma: string
+  readings: string[]
+  glosses: string[]
+}
+
+async function lookupLemma(lemma: string): Promise<LexicalEntryOut | null> {
+  const response = await fetch(`${API_BASE}/lookup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ lemma }),
+  })
+  if (response.status === 404) return null
+  return response.json()
+}
+
 // Keyed by section href. Populated as each section is rendered, so lookups
 // (step 3+) only need to touch the section currently on screen.
 const sectionData = new Map<string, SectionData>()
@@ -70,7 +86,7 @@ function attachClickHandler(section: Section, doc: Document): void {
   // caretRangeFromPoint is the WebKit/Safari spelling (no standard
   // cross-browser equivalent) -- fine here since this targets a Mac webview,
   // per the project's click-resolution design.
-  doc.addEventListener('click', (event: MouseEvent) => {
+  doc.addEventListener('click', async (event: MouseEvent) => {
     const range = doc.caretRangeFromPoint(event.clientX, event.clientY)
     if (!range) {
       console.log('[click] no caret position at click point')
@@ -106,11 +122,31 @@ function attachClickHandler(section: Section, doc: Document): void {
     }
 
     console.log(`[click] token surface="${token.surface}" lemma="${token.lemma}"`)
+
+    const entry = await lookupLemma(token.lemma)
+    if (!entry) {
+      console.log(`[lookup] no dictionary entry for "${token.lemma}"`)
+      return
+    }
+    console.log(`[lookup] ${token.lemma}`, entry)
   })
 }
 
-rendition.on('rendered', async (section: Section, view: { contents: Contents }) => {
-  const doc = view.contents.document
+rendition.on('rendered', async (section: Section) => {
+  // The "rendered" event's own (section, view) callback args are unreliable:
+  // epub.js's internals (rendition.js afterDisplayed) explicitly emit
+  // "rendered" even when view.contents isn't attached yet, so reading
+  // view.contents directly crashed here intermittently. rendition.getContents()
+  // is the manager's own list of views whose contents *are* attached
+  // (it filters out exactly this case), so look up this section's Contents
+  // there instead, matching by section index. If it's not ready yet, skip --
+  // a later "rendered" firing for the same section covers it correctly.
+  const contents = (rendition.getContents() as unknown as Contents[]).find(
+    (c) => c.sectionIndex === section.index,
+  )
+  if (!contents) return
+
+  const doc = contents.document
   attachClickHandler(section, doc)
 
   const { text, runs } = buildNormalizedText(doc.body)
