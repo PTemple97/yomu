@@ -7,6 +7,8 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.141.1",
     "fugashi>=1.5.2",
+    "jamdict>=0.1a11.post2",
+    "jamdict-data>=1.5",
     "unidic-lite>=1.0.8",
     "uvicorn>=0.52.4",
 ]
