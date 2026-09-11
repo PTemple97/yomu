@@ -44,6 +44,9 @@ yarn-error.log*
 pnpm-debug.log*
 coverage/
 
+# --- Local test assets (copyrighted content, not for public distribution) ---
+frontend/public/sample.epub
+
 # --- Editors / OS ---
 .vscode/
 .idea/
