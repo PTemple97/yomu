@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.dictionary import lookup
@@ -6,6 +7,17 @@ from app.morphology import tokenize
 from app.segmenter import segment
 
 app = FastAPI()
+
+# The frontend (Vite dev server) runs on a different origin/port than this
+# backend, so browser fetches need CORS allowed. Everything here runs on
+# localhost for now (per the project's local-first design), so this stays
+# permissive rather than hardcoding a specific dev port.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
