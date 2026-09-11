@@ -1,6 +1,7 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from app.dictionary import lookup
 from app.morphology import tokenize
 from app.segmenter import segment
 
@@ -75,3 +76,24 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
             )
 
     return AnalyzeResponse(sentences=sentence_outs, tokens=token_outs)
+
+
+class LookupRequest(BaseModel):
+    lemma: str
+
+
+class LexicalEntryOut(BaseModel):
+    lemma: str
+    readings: list[str]
+    glosses: list[str]
+
+
+@app.post("/lookup")
+def lookup_lemma(request: LookupRequest) -> LexicalEntryOut:
+    entry = lookup(request.lemma)
+    if entry is None:
+        raise HTTPException(status_code=404, detail="lemma not found")
+
+    return LexicalEntryOut(
+        lemma=entry.lemma, readings=entry.readings, glosses=entry.glosses
+    )

@@ -4,7 +4,13 @@ from dataclasses import dataclass
 
 from jamdict import Jamdict
 
-_jam = Jamdict()
+# reuse_ctx=False: by default Jamdict caches one sqlite3 connection across
+# calls, opened lazily on whichever thread calls lookup() first. FastAPI runs
+# sync route handlers on a thread pool, so a later request can land on a
+# different thread than the one that opened it -- sqlite3 connections can't
+# cross threads. Disabling reuse makes each lookup() open its own connection
+# on the calling thread; that's cheap enough for single-word lookups.
+_jam = Jamdict(reuse_ctx=False)
 
 
 @dataclass(frozen=True)
