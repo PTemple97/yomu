@@ -3,6 +3,10 @@ import Epub from 'epubjs'
 import type Section from 'epubjs/types/section'
 import type Contents from 'epubjs/types/contents'
 import type { NavItem } from 'epubjs/types/navigation'
+// Shadows the global DOM `Location` (window.location) within this module --
+// deliberate, this is epub.js's own Location (a {start, end} pair of
+// DisplayedLocation), which is what "relocated" actually hands us.
+import type { Location } from 'epubjs/types/rendition'
 import { buildNormalizedText, domToNorm, type Run } from './domAlign'
 
 const API_BASE = 'http://localhost:8000'
@@ -132,7 +136,25 @@ const rendition = book.renderTo(viewer, {
   spread: 'none',
 })
 
-rendition.display()
+// Single fixed key: there's only ever one hardcoded book right now
+// (/sample.epub). This will need a per-book key (e.g. derived from the
+// book's identifier) once the library isn't just one file.
+const LAST_POSITION_KEY = 'yomu:lastPosition'
+
+const savedCfi = localStorage.getItem(LAST_POSITION_KEY)
+rendition.display(savedCfi ?? undefined)
+
+// "relocated" (not "rendered") is epub.js's purpose-built "the displayed
+// location changed" event -- it fires once per actual navigation, unlike
+// "rendered" which fires per view and can duplicate.
+rendition.on('relocated', (location: Location) => {
+  try {
+    localStorage.setItem(LAST_POSITION_KEY, location.start.cfi)
+  } catch {
+    // localStorage can throw (private browsing, storage disabled, quota) --
+    // losing the saved position isn't worth crashing the reader over.
+  }
+})
 
 document.querySelector<HTMLButtonElement>('#prev-btn')!.addEventListener('click', () => {
   rendition.prev()
