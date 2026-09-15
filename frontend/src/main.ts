@@ -7,7 +7,7 @@ import { renderTocList } from './toc'
 // deliberate, this is epub.js's own Location (a {start, end} pair of
 // DisplayedLocation), which is what "relocated" actually hands us.
 import type { Location } from 'epubjs/types/rendition'
-import { buildNormalizedText, domToNorm, type Run } from './domAlign'
+import { buildNormalizedText, domToNorm, normToDom, type Run } from './domAlign'
 
 const API_BASE = 'http://localhost:8000'
 
@@ -212,6 +212,7 @@ function attachDocumentListeners(section: Section, doc: Document): void {
   docListenersAttached.add(doc)
 
   bindArrowKeyNavigation(doc)
+  injectHighlightStyle(doc)
 
   // caretRangeFromPoint is the WebKit/Safari spelling (no standard
   // cross-browser equivalent) -- fine here since this targets a Mac webview,
@@ -272,6 +273,183 @@ function attachDocumentListeners(section: Section, doc: Document): void {
     showPopup(frameRect.left + event.clientX, frameRect.top + event.clientY, entry)
   })
 }
+
+// --- TTS playback ---
+
+const HIGHLIGHT_NAME = 'tts-sentence'
+
+// The CSS Custom Highlight API's registry (CSS.highlights) and the
+// ::highlight() pseudo-element are per-document, scoped to whichever
+// document the styled content lives in -- so the rule has to be injected
+// into each iframe document, not style.css (which only reaches the
+// top-level document).
+function injectHighlightStyle(doc: Document): void {
+  const style = doc.createElement('style')
+  style.textContent = `::highlight(${HIGHLIGHT_NAME}) { background-color: #ffe066; }`
+  doc.head.appendChild(style)
+}
+
+function getCurrentSectionDoc(): { href: string; doc: Document } | null {
+  // currentLocation()'s declared return type (DisplayedLocation) doesn't
+  // match what it actually returns at runtime (a Location: {start, end}) --
+  // same kind of inaccuracy as getContents() being typed as singular when it
+  // returns an array. Cast to the type "relocated" already told us is real.
+  const location = rendition.currentLocation() as unknown as Location
+  const contents = (rendition.getContents() as unknown as Contents[]).find(
+    (c) => c.sectionIndex === location.start.index,
+  )
+  if (!contents) return null
+  return { href: location.start.href, doc: contents.document }
+}
+
+function highlightSentenceRange(doc: Document, runs: Run[], sentence: SentenceOut): void {
+  const startPos = normToDom(runs, sentence.start)
+  const endPos = normToDom(runs, sentence.end)
+
+  const range = doc.createRange()
+  range.setStart(startPos.node, startPos.domOffset)
+  range.setEnd(endPos.node, endPos.domOffset)
+
+  // Highlight/CSS are per-realm globals -- must come from the iframe's own
+  // window, not the top-level one, same reasoning as caretRangeFromPoint
+  // needing to run on the iframe's own document.
+  const iframeWindow = doc.defaultView
+  if (!iframeWindow) return
+  iframeWindow.CSS.highlights.set(HIGHLIGHT_NAME, new iframeWindow.Highlight(range))
+}
+
+interface PlaybackState {
+  sectionHref: string
+  sentences: SentenceOut[]
+  index: number
+  // Sentence index -> its audio object URL, once fetched. Doubles as the
+  // prefetch cache: the next sentence's fetch is kicked off while the
+  // current one plays, so by the time "ended" fires the URL is usually
+  // already sitting here.
+  audioUrls: Map<number, Promise<string>>
+}
+
+let playback: PlaybackState | null = null
+const ttsAudio = new Audio()
+
+const playPauseBtn = document.querySelector<HTMLButtonElement>('#play-pause-btn')!
+
+function updatePlayPauseLabel(): void {
+  playPauseBtn.textContent = playback && !ttsAudio.paused ? 'Pause' : 'Play'
+}
+
+async function fetchTtsAudioUrl(sentence: SentenceOut): Promise<string> {
+  const response = await fetch(`${API_BASE}/tts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sentence_id: String(sentence.id), text: sentence.text }),
+  })
+  const blob = await response.blob()
+  return URL.createObjectURL(blob)
+}
+
+function ensurePrefetch(state: PlaybackState, index: number): void {
+  if (index < 0 || index >= state.sentences.length) return
+  if (state.audioUrls.has(index)) return
+  state.audioUrls.set(index, fetchTtsAudioUrl(state.sentences[index]))
+}
+
+async function playSentenceAt(state: PlaybackState, index: number): Promise<void> {
+  if (playback !== state) return // superseded by a stop/restart while awaiting
+
+  // The sentence we just finished won't be replayed -- release its object URL.
+  if (state.index >= 0) {
+    const prevUrl = state.audioUrls.get(state.index)
+    state.audioUrls.delete(state.index)
+    prevUrl?.then((url) => URL.revokeObjectURL(url)).catch(() => {})
+  }
+
+  if (index >= state.sentences.length) {
+    stopPlayback()
+    return
+  }
+
+  state.index = index
+  const sentence = state.sentences[index]
+
+  const sectionDoc = getCurrentSectionDoc()
+  const data = sectionData.get(state.sectionHref)
+  if (sectionDoc && sectionDoc.href === state.sectionHref && data) {
+    highlightSentenceRange(sectionDoc.doc, data.runs, sentence)
+  }
+
+  let url: string
+  try {
+    ensurePrefetch(state, index)
+    url = await state.audioUrls.get(index)!
+  } catch (error) {
+    console.log('[tts] failed to fetch audio for sentence', index, error)
+    stopPlayback()
+    return
+  }
+  if (playback !== state) return
+
+  ttsAudio.src = url
+  updatePlayPauseLabel()
+  try {
+    await ttsAudio.play()
+  } catch (error) {
+    // Autoplay can be blocked in some contexts; the play button click that
+    // leads here should normally count as a user gesture, but don't let a
+    // rejected play() promise go unhandled.
+    console.log('[tts] audio.play() rejected', error)
+  }
+
+  ensurePrefetch(state, index + 1)
+}
+
+function startPlayback(): void {
+  const sectionDoc = getCurrentSectionDoc()
+  const data = sectionDoc ? sectionData.get(sectionDoc.href) : undefined
+  if (!sectionDoc || !data || data.sentences.length === 0) {
+    console.log('[tts] no analyzed section ready to play yet')
+    return
+  }
+
+  playback = { sectionHref: sectionDoc.href, sentences: data.sentences, index: -1, audioUrls: new Map() }
+  playSentenceAt(playback, 0)
+}
+
+function stopPlayback(): void {
+  if (!playback) return
+
+  ttsAudio.pause()
+  ttsAudio.removeAttribute('src')
+  for (const urlPromise of playback.audioUrls.values()) {
+    urlPromise.then((url) => URL.revokeObjectURL(url)).catch(() => {})
+  }
+  playback = null
+  updatePlayPauseLabel()
+}
+
+ttsAudio.addEventListener('ended', () => {
+  if (!playback) return
+  playSentenceAt(playback, playback.index + 1)
+})
+
+playPauseBtn.addEventListener('click', () => {
+  if (playback === null) {
+    startPlayback()
+  } else if (ttsAudio.paused) {
+    ttsAudio.play()
+  } else {
+    ttsAudio.pause()
+  }
+  updatePlayPauseLabel()
+})
+
+// Stop playback on any manual navigation -- TOC click, prev/next buttons,
+// and arrow keys all funnel through rendition.display()/.next()/.prev(),
+// which all fire "relocated". Playback itself never calls those, so this
+// can't misfire during normal sentence-to-sentence advancement.
+rendition.on('relocated', () => {
+  stopPlayback()
+})
 
 rendition.on('rendered', async (section: Section) => {
   // The "rendered" event's own (section, view) callback args are unreliable:
