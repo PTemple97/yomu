@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.dictionary import lookup
 from app.morphology import tokenize
 from app.segmenter import segment
+from app.tts.cache import synthesize_cached
+from app.tts.kokoro_provider import get_provider
 
 app = FastAPI()
 
@@ -114,3 +116,25 @@ def lookup_lemma(request: LookupRequest) -> LexicalEntryOut:
     return LexicalEntryOut(
         lemma=entry.lemma, readings=entry.readings, glosses=entry.glosses
     )
+
+
+# Hardcoded for now -- no voice/speed picker yet. jf_alpha is Kokoro's
+# primary Japanese voice.
+_TTS_VOICE = "jf_alpha"
+_TTS_SPEED = 1.0
+_TTS_LANG = "ja"
+
+
+class TtsRequest(BaseModel):
+    sentence_id: str
+    text: str
+
+
+@app.post("/tts")
+def synthesize_tts(request: TtsRequest) -> Response:
+    # sentence_id isn't part of the cache key or synthesis input -- it's the
+    # frontend's own correlation id, unused here.
+    audio = synthesize_cached(
+        get_provider(), request.text, voice=_TTS_VOICE, speed=_TTS_SPEED, lang=_TTS_LANG
+    )
+    return Response(content=audio, media_type="audio/wav")
