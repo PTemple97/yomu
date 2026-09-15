@@ -139,3 +139,8 @@ milestone assumes offsets are correct.
   to become a per-book key (e.g. derived from the book's identifier) once a
   real library/multi-book feature exists — otherwise opening a second book
   will silently resume at the first book's saved position.
+
+- **TTS auto-advance stops at the end of a section** rather than continuing
+  into the next EPUB section automatically. Deliberate scope choice for M3,
+  not an oversight — revisit if continuous cross-chapter playback is wanted
+  later.
