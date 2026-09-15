@@ -41,11 +41,14 @@ interface LexicalEntryOut {
   glosses: string[]
 }
 
-async function lookupLemma(lemma: string): Promise<LexicalEntryOut | null> {
+async function lookupLemma(lemma: string, posHint: string): Promise<LexicalEntryOut | null> {
   const response = await fetch(`${API_BASE}/lookup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lemma }),
+    // TokenOut.pos is already UniDic-style Japanese (e.g. "助詞"), the exact
+    // vocabulary dictionary.py's pos_hint expects (see its
+    // _POS_HINT_PATTERNS table) -- no translation needed between the two.
+    body: JSON.stringify({ lemma, pos_hint: posHint }),
   })
   if (response.status === 404) return null
   return response.json()
@@ -190,7 +193,7 @@ function attachClickHandler(section: Section, doc: Document): void {
 
     console.log(`[click] token surface="${token.surface}" lemma="${token.lemma}"`)
 
-    const entry = await lookupLemma(token.lemma)
+    const entry = await lookupLemma(token.lemma, token.pos)
     if (!entry) {
       console.log(`[lookup] no dictionary entry for "${token.lemma}"`)
       removePopup()
