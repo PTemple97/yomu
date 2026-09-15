@@ -76,6 +76,11 @@ the interface. Sentence-level sync only for now — the sentence is both the
 TTS unit and the highlight unit. Word-level karaoke-style sync (forced
 alignment) is an explicit non-goal unless revisited later.
 
+The first Kokoro TTS request on a fresh machine triggers a one-time ~327MB
+model download from Hugging Face Hub (cached under `~/.cache/huggingface`);
+see `backend/README.md` for the separate, manual, one-time full-UniDic setup
+step Japanese TTS also requires.
+
 **TTS cache keys include:** model, model version, voice, speed, language, the
 normalized sentence text, and any other synthesis settings — not just
 voice + sentence. Re-tuning speed or bumping a model version must correctly
