@@ -2,7 +2,7 @@ import './style.css'
 import Epub from 'epubjs'
 import type Section from 'epubjs/types/section'
 import type Contents from 'epubjs/types/contents'
-import type { NavItem } from 'epubjs/types/navigation'
+import { renderTocList } from './toc'
 // Shadows the global DOM `Location` (window.location) within this module --
 // deliberate, this is epub.js's own Location (a {start, end} pair of
 // DisplayedLocation), which is what "relocated" actually hands us.
@@ -187,27 +187,13 @@ document.querySelector<HTMLButtonElement>('#toc-btn')!.addEventListener('click',
   tocPanel.hidden = !tocPanel.hidden
 })
 
-function renderTocList(items: NavItem[]): HTMLUListElement {
-  const list = document.createElement('ul')
-  for (const item of items) {
-    const entry = document.createElement('li')
-    const link = document.createElement('a')
-    link.textContent = item.label.trim()
-    link.addEventListener('click', () => {
-      rendition.display(item.href)
-      tocPanel.hidden = true
-    })
-    entry.appendChild(link)
-    if (item.subitems && item.subitems.length > 0) {
-      entry.appendChild(renderTocList(item.subitems))
-    }
-    list.appendChild(entry)
-  }
-  return list
-}
-
 book.loaded.navigation.then((navigation) => {
-  tocPanel.appendChild(renderTocList(navigation.toc))
+  tocPanel.appendChild(
+    renderTocList(navigation.toc, (href) => {
+      rendition.display(href)
+      tocPanel.hidden = true
+    }),
+  )
 })
 
 function findTokenAt(tokens: TokenOut[], offset: number): TokenOut | undefined {
