@@ -126,3 +126,11 @@ reshaping anything.
 The one non-negotiable for M1: a passing test that round-trips offsets
 through a CJK Ext-B (supplementary-plane) character, since every later
 milestone assumes offsets are correct.
+
+## Known Follow-ups
+
+- **Reading position uses a single fixed `localStorage` key.** This only
+  works because there's exactly one hardcoded book (`/sample.epub`). It needs
+  to become a per-book key (e.g. derived from the book's identifier) once a
+  real library/multi-book feature exists — otherwise opening a second book
+  will silently resume at the first book's saved position.
