@@ -92,6 +92,11 @@ def analyze(request: AnalyzeRequest) -> AnalyzeResponse:
 
 class LookupRequest(BaseModel):
     lemma: str
+    # Optional UniDic-style POS tag (e.g. "助詞") from the Morphology token
+    # for the word being looked up, used to break ties between homophone
+    # entries in favor of the one consistent with how the word is actually
+    # being used. Not yet sent by the frontend -- see app/dictionary.py.
+    pos_hint: str | None = None
 
 
 class LexicalEntryOut(BaseModel):
@@ -102,7 +107,7 @@ class LexicalEntryOut(BaseModel):
 
 @app.post("/lookup")
 def lookup_lemma(request: LookupRequest) -> LexicalEntryOut:
-    entry = lookup(request.lemma)
+    entry = lookup(request.lemma, pos_hint=request.pos_hint)
     if entry is None:
         raise HTTPException(status_code=404, detail="lemma not found")
 
