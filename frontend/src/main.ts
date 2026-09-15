@@ -2,6 +2,7 @@ import './style.css'
 import Epub from 'epubjs'
 import type Section from 'epubjs/types/section'
 import type Contents from 'epubjs/types/contents'
+import type { NavItem } from 'epubjs/types/navigation'
 import { buildNormalizedText, domToNorm, type Run } from './domAlign'
 
 const API_BASE = 'http://localhost:8000'
@@ -157,6 +158,35 @@ function bindArrowKeyNavigation(target: Document): void {
 }
 
 bindArrowKeyNavigation(document)
+
+const tocPanel = document.querySelector<HTMLElement>('#toc-panel')!
+
+document.querySelector<HTMLButtonElement>('#toc-btn')!.addEventListener('click', () => {
+  tocPanel.hidden = !tocPanel.hidden
+})
+
+function renderTocList(items: NavItem[]): HTMLUListElement {
+  const list = document.createElement('ul')
+  for (const item of items) {
+    const entry = document.createElement('li')
+    const link = document.createElement('a')
+    link.textContent = item.label.trim()
+    link.addEventListener('click', () => {
+      rendition.display(item.href)
+      tocPanel.hidden = true
+    })
+    entry.appendChild(link)
+    if (item.subitems && item.subitems.length > 0) {
+      entry.appendChild(renderTocList(item.subitems))
+    }
+    list.appendChild(entry)
+  }
+  return list
+}
+
+book.loaded.navigation.then((navigation) => {
+  tocPanel.appendChild(renderTocList(navigation.toc))
+})
 
 function findTokenAt(tokens: TokenOut[], offset: number): TokenOut | undefined {
   return tokens.find((t) => offset >= t.start && offset < t.end)

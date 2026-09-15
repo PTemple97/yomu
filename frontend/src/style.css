@@ -18,3 +18,26 @@ body {
   flex: 1 1 auto;
   min-height: 0;
 }
+
+#toc-panel {
+  position: absolute;
+  top: 2.5em;
+  left: 0;
+  z-index: 10;
+  max-height: 70vh;
+  max-width: 20em;
+  overflow: auto;
+  background: white;
+  border: 1px solid #888;
+}
+
+#toc-panel ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 1em;
+}
+
+#toc-panel a {
+  display: block;
+  cursor: pointer;
+}
