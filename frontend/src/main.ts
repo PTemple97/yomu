@@ -133,6 +133,31 @@ const rendition = book.renderTo(viewer, {
 
 rendition.display()
 
+document.querySelector<HTMLButtonElement>('#prev-btn')!.addEventListener('click', () => {
+  rendition.prev()
+})
+document.querySelector<HTMLButtonElement>('#next-btn')!.addEventListener('click', () => {
+  rendition.next()
+})
+
+// Arrow keys work from the top-level document by default, but focus can
+// shift into the epub.js iframe's own document once the user clicks inside
+// the book -- a keydown listener only on the parent document would silently
+// stop catching arrow keys after that. bindArrowKeyNavigation is called both
+// here (once, for the top-level document) and per-iframe-document below
+// (guarded by the same WeakSet as the click handler).
+function bindArrowKeyNavigation(target: Document): void {
+  target.addEventListener('keydown', (event: KeyboardEvent) => {
+    if (event.key === 'ArrowRight') {
+      rendition.next()
+    } else if (event.key === 'ArrowLeft') {
+      rendition.prev()
+    }
+  })
+}
+
+bindArrowKeyNavigation(document)
+
 function findTokenAt(tokens: TokenOut[], offset: number): TokenOut | undefined {
   return tokens.find((t) => offset >= t.start && offset < t.end)
 }
@@ -140,13 +165,15 @@ function findTokenAt(tokens: TokenOut[], offset: number): TokenOut | undefined {
 // epub.js's "rendered" event can fire more than once for what turns out to
 // be the same iframe document (observed during initial layout settling). A
 // WeakSet keyed on the document -- rather than on section href -- attaches
-// the click listener at most once per actual document instance, whether
-// that's because of a duplicate event or a genuinely new iframe.
-const clickListenersAttached = new WeakSet<Document>()
+// these listeners at most once per actual document instance, whether that's
+// because of a duplicate event or a genuinely new iframe.
+const docListenersAttached = new WeakSet<Document>()
 
-function attachClickHandler(section: Section, doc: Document): void {
-  if (clickListenersAttached.has(doc)) return
-  clickListenersAttached.add(doc)
+function attachDocumentListeners(section: Section, doc: Document): void {
+  if (docListenersAttached.has(doc)) return
+  docListenersAttached.add(doc)
+
+  bindArrowKeyNavigation(doc)
 
   // caretRangeFromPoint is the WebKit/Safari spelling (no standard
   // cross-browser equivalent) -- fine here since this targets a Mac webview,
@@ -223,7 +250,7 @@ rendition.on('rendered', async (section: Section) => {
   if (!contents) return
 
   const doc = contents.document
-  attachClickHandler(section, doc)
+  attachDocumentListeners(section, doc)
 
   const { text, runs } = buildNormalizedText(doc.body)
 
