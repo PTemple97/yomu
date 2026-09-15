@@ -47,6 +47,9 @@ coverage/
 # --- Local test assets (copyrighted content, not for public distribution) ---
 frontend/public/sample.epub
 
+# --- Runtime data (SQLite DBs, cached TTS audio, etc.) ---
+backend/data/
+
 # --- Editors / OS ---
 .vscode/
 .idea/
